@@ -1,11 +1,10 @@
 import type {
   BaseSchema,
   BaseSchemaAsync,
-  Input,
   Issues,
   Output,
 } from '../../types.ts';
-import { getIssues } from '../../utils/index.ts';
+import { getSchemaIssues } from '../../utils/index.ts';
 
 /**
  * Intersection options async type.
@@ -15,6 +14,32 @@ export type IntersectionOptionsAsync = [
   BaseSchema | BaseSchemaAsync,
   ...(BaseSchema[] | BaseSchemaAsync[])
 ];
+
+type AsyncIntersectionInput<
+  TIntersectionOptions extends IntersectionOptionsAsync
+> = TIntersectionOptions extends [
+  BaseSchema<infer TInput, any>,
+  ...infer TRest
+]
+  ? TRest extends IntersectionOptionsAsync
+    ? TInput & AsyncIntersectionOutput<TRest>
+    : TRest extends [BaseSchema<infer TInput2, any>]
+    ? TInput & TInput2
+    : TRest extends [BaseSchemaAsync<infer TInput2, any>]
+    ? TInput & TInput2
+    : never
+  : TIntersectionOptions extends [
+      BaseSchemaAsync<infer TInput, any>,
+      ...infer TRest
+    ]
+  ? TRest extends IntersectionOptionsAsync
+    ? TInput & AsyncIntersectionOutput<TRest>
+    : TRest extends [BaseSchema<infer TInput2, any>]
+    ? TInput & TInput2
+    : TRest extends [BaseSchemaAsync<infer TInput2, any>]
+    ? TInput & TInput2
+    : never
+  : never;
 
 type AsyncIntersectionOutput<
   TIntersectionOptions extends IntersectionOptionsAsync
@@ -47,12 +72,9 @@ type AsyncIntersectionOutput<
  */
 export type IntersectionSchemaAsync<
   TIntersectionOptions extends IntersectionOptionsAsync,
-  TOutput = Output<
-    BaseSchemaAsync<AsyncIntersectionOutput<TIntersectionOptions>>
-  >
+  TOutput = AsyncIntersectionOutput<TIntersectionOptions>
 > = BaseSchemaAsync<
-  Input<BaseSchemaAsync<AsyncIntersectionOutput<TIntersectionOptions>>>,
-  TOutput
+  AsyncIntersectionInput<TIntersectionOptions>, TOutput
 > & {
   schema: 'intersection';
   intersection: TIntersectionOptions;
@@ -108,6 +130,13 @@ export function intersectionAsync<
         // If there are issues, set output and break loop
         if (result.issues) {
           issues = result.issues;
+          // collect deeply nested issues
+          while (issues?.length) {
+            issues =
+              (issues => (issues.length ? (issues as Issues) : undefined))(issues.flatMap(i => i.issues ?? [])) ??
+              issues
+            break
+          }
           break;
         } else {
           if (output) {
@@ -128,14 +157,14 @@ export function intersectionAsync<
               return value;
             }) as AsyncIntersectionOutput<TIntersectionOptions>,
           }
-        : getIssues(
-            info,
-            'type',
-            'intersection',
-            error || 'Invalid type',
-            input,
-            issues
-          );
+        : getSchemaIssues(
+          info,
+          'type',
+          'intersection',
+          error || 'Invalid type',
+          input,
+          issues
+        );
     },
   };
 }

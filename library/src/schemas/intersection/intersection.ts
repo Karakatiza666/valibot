@@ -1,5 +1,5 @@
-import type { BaseSchema, Input, Issues, Output } from '../../types.ts';
-import { getIssues } from '../../utils/index.ts';
+import type { BaseSchema, Issues, Output } from '../../types.ts';
+import { getSchemaIssues } from '../../utils/index.ts';
 
 /**
  * Intersection options type.
@@ -10,24 +10,35 @@ export type IntersectionOptions = [
   ...BaseSchema<any>[]
 ];
 
-type IntersectionOutput<TIntersectionOptions extends IntersectionOptions> =
-  TIntersectionOptions extends [BaseSchema<any, infer TOutput>, ...infer TRest]
-    ? TRest extends IntersectionOptions
-      ? TOutput & IntersectionOutput<TRest>
-      : TRest extends [BaseSchema<any, infer TOutput2>]
-      ? TOutput & TOutput2
-      : never
-    : never;
+type IntersectionInput<TIntersectionOptions extends IntersectionOptions> = TIntersectionOptions extends [
+  BaseSchema<infer TInput, any>,
+  ...infer TRest
+]
+  ? TRest extends IntersectionOptions
+    ? TInput & IntersectionInput<TRest>
+    : TRest extends [BaseSchema<infer TInput2, any>]
+    ? TInput & TInput2
+    : never
+  : never;
+
+type IntersectionOutput<TIntersectionOptions extends IntersectionOptions> = TIntersectionOptions extends [
+  BaseSchema<any, infer TOutput>,
+  ...infer TRest
+]
+  ? TRest extends IntersectionOptions
+    ? TOutput & IntersectionOutput<TRest>
+    : TRest extends [BaseSchema<any, infer TOutput2>]
+    ? TOutput & TOutput2
+    : never
+  : never;
 
 /**
  * Intersection schema type.
  */
 export type IntersectionSchema<
   TIntersectionOptions extends IntersectionOptions,
-  TOutput = Output<BaseSchema<IntersectionOutput<TIntersectionOptions>>>
-> = BaseSchema<
-  Input<BaseSchema<IntersectionOutput<TIntersectionOptions>>>,
-  TOutput
+  TOutput = IntersectionOutput<TIntersectionOptions>
+> = BaseSchema<IntersectionInput<TIntersectionOptions>, TOutput
 > & {
   schema: 'intersection';
   intersection: TIntersectionOptions;
@@ -81,6 +92,13 @@ export function intersection<TIntersectionOptions extends IntersectionOptions>(
         // If there are issues, set output and break loop
         if (result.issues) {
           issues = result.issues;
+          // collect deeply nested issues
+          while (issues?.length) {
+            issues =
+              (issues => (issues.length ? (issues as Issues) : undefined))(issues.flatMap(i => i.issues ?? [])) ??
+              issues
+            break
+          }
           break;
         } else {
           if (output) {
@@ -99,9 +117,11 @@ export function intersection<TIntersectionOptions extends IntersectionOptions>(
                 return { ...acc, ...value };
               }
               return value;
-            }) as IntersectionOutput<TIntersectionOptions>,
+            }) as IntersectionOutput<TIntersectionOptions>
           }
-        : getIssues(
+        : issues?.length
+          ? { issues }
+          : getSchemaIssues(
             info,
             'type',
             'intersection',
